@@ -1,0 +1,355 @@
+local player = game.Players.LocalPlayer
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
+
+local filename = "binds.json"
+
+local function saveBinds(keybinds)
+    if writefile then
+        local data = HttpService:JSONEncode({
+            Jump = keybinds.Jump and keybinds.Jump.Name or nil,
+            Fly = keybinds.Fly and keybinds.Fly.Name or nil,
+            ESP = keybinds.ESP and keybinds.ESP.Name or nil,
+        })
+        writefile(filename, data)
+    end
+end
+
+-- Функция загрузки биндов из файла
+local function loadBinds()
+    if readfile and isfile and isfile(filename) then
+        local data = readfile(filename)
+        local ok, decoded = pcall(function()
+            return HttpService:JSONDecode(data)
+        end)
+        if ok and decoded then
+            return {
+                Jump = decoded.Jump and Enum.KeyCode[decoded.Jump] or nil,
+                Fly = decoded.Fly and Enum.KeyCode[decoded.Fly] or nil,
+                ESP = decoded.ESP and Enum.KeyCode[decoded.ESP] or nil,
+            }
+        end
+    end
+    return {Jump = nil, Fly = nil, ESP = nil}
+end
+
+local jumpBoost = false
+local flying = false
+local espEnabled = false
+local highlights = {}
+local basePartMarkers = {}
+local platform
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "CheatGui"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = game.CoreGui
+
+local Frame = Instance.new("Frame", ScreenGui)
+Frame.Size = UDim2.new(0, 200, 0, 180)
+Frame.Position = UDim2.new(0.5, -100, 0.5, -90)
+Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+Frame.Active = true
+Frame.Draggable = true
+
+local TitleLabel = Instance.new("TextLabel", Frame)
+TitleLabel.Size = UDim2.new(1, 0, 0, 25)
+TitleLabel.Position = UDim2.new(0, -10, 0, 0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Text = "JANNNMG"
+TitleLabel.Font = Enum.Font.SourceSansBold
+TitleLabel.TextColor3 = Color3.new(1, 1, 1)
+TitleLabel.TextScaled = true
+TitleLabel.TextYAlignment = Enum.TextYAlignment.Center
+
+local CloseButton = Instance.new("TextButton", Frame)
+CloseButton.Size = UDim2.new(0, 25, 0, 25)
+CloseButton.Position = UDim2.new(1, -30, 0, 5)
+CloseButton.Text = "X"
+CloseButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+CloseButton.TextColor3 = Color3.new(1, 1, 1)
+
+local MinimizeButton = Instance.new("TextButton", Frame)
+MinimizeButton.Size = UDim2.new(0, 25, 0, 25)
+MinimizeButton.Position = UDim2.new(1, -60, 0, 5)
+MinimizeButton.Text = "–"
+MinimizeButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+MinimizeButton.TextColor3 = Color3.new(1, 1, 1)
+
+local JumpButton = Instance.new("TextButton", Frame)
+JumpButton.Size = UDim2.new(0, 160, 0, 40)
+JumpButton.Position = UDim2.new(0, 20, 0, 40)
+JumpButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
+JumpButton.TextColor3 = Color3.new(1, 1, 1)
+
+local FlyButton = Instance.new("TextButton", Frame)
+FlyButton.Size = UDim2.new(0, 160, 0, 40)
+FlyButton.Position = UDim2.new(0, 20, 0, 90)
+FlyButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+FlyButton.TextColor3 = Color3.new(1, 1, 1)
+
+local ESPButton = Instance.new("TextButton", Frame)
+ESPButton.Size = UDim2.new(0, 160, 0, 40)
+ESPButton.Position = UDim2.new(0, 20, 0, 140)
+ESPButton.BackgroundColor3 = Color3.fromRGB(255, 100, 0)
+ESPButton.TextColor3 = Color3.new(1, 1, 1)
+
+local minimized = false
+MinimizeButton.MouseButton1Click:Connect(function()
+    if minimized then
+        Frame.Size = UDim2.new(0, 200, 0, 180)
+        JumpButton.Visible = true
+        FlyButton.Visible = true
+        ESPButton.Visible = true
+        minimized = false
+    else
+        Frame.Size = UDim2.new(0, 200, 0, 30)
+        JumpButton.Visible = false
+        FlyButton.Visible = false
+        ESPButton.Visible = false
+        minimized = true
+    end
+end)
+
+CloseButton.MouseButton1Click:Connect(function()
+    ScreenGui:Destroy()
+end)
+
+local function gradualJumpPower(targetPower)
+    spawn(function()
+        local character = player.Character or player.CharacterAdded:Wait()
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            local currentPower = humanoid.JumpPower
+            local step = (targetPower - currentPower) / 10
+            for i = 1, 10 do
+                if not humanoid then break end
+                currentPower = currentPower + step
+                humanoid.JumpPower = currentPower
+                humanoid.UseJumpPower = true
+                wait(0.07 + math.random() * 0.03)
+            end
+            humanoid.JumpPower = targetPower
+            humanoid.UseJumpPower = true
+        end
+    end)
+end
+
+local function toggleJump()
+    jumpBoost = not jumpBoost
+    if jumpBoost then
+        gradualJumpPower(80)
+    else
+        gradualJumpPower(50)
+    end
+end
+
+local function fastFollowPlatform(hrp)
+    if platform == nil then return end
+    platform.CFrame = CFrame.new(hrp.Position - Vector3.new(0, 3, 0))
+end
+
+local function startFlight()
+    if flying then return end
+    flying = true
+    local character = player.Character or player.CharacterAdded:Wait()
+    local hrp = character:WaitForChild("HumanoidRootPart")
+    platform = Instance.new("Part")
+    platform.Name = "FlyPlatform"
+    platform.Size = Vector3.new(6, 0.5, 6)
+    platform.Anchored = true
+    platform.CanCollide = true
+    platform.Transparency = 0
+    platform.Material = Enum.Material.Neon
+    platform.BrickColor = BrickColor.new("Bright red")
+    platform.Parent = workspace
+    spawn(function()
+        while flying and platform and character.Parent do
+            fastFollowPlatform(hrp)
+            wait(0.01)
+        end
+        if platform then
+            platform:Destroy()
+            platform = nil
+        end
+    end)
+end
+
+local function stopFlight()
+    flying = false
+    if platform then
+        platform:Destroy()
+        platform = nil
+    end
+end
+
+local function toggleFly()
+    if flying then
+        stopFlight()
+    else
+        startFlight()
+    end
+end
+
+local function createBasePartMarker(part)
+    local marker = Instance.new("BillboardGui")
+    marker.Adornee = part
+    marker.Size = UDim2.new(0, 50, 0, 50)
+    marker.AlwaysOnTop = true
+    marker.LightInfluence = 0
+    local frame = Instance.new("Frame", marker)
+    frame.Size = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundColor3 = Color3.new(1, 0, 0)
+    frame.BorderSizePixel = 0
+    frame.BackgroundTransparency = 0.5
+    marker.Parent = game.CoreGui
+    return marker
+end
+
+local function addHighlight(plr)
+    if plr == player then return end
+    if highlights[plr] then return end
+    local character = plr.Character
+    if character then
+        local highlight = Instance.new("Highlight")
+        highlight.Adornee = character
+        highlight.FillColor = Color3.new(1, 0, 0)
+        highlight.OutlineColor = Color3.new(1, 1, 1)
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.Parent = game.CoreGui
+        highlights[plr] = highlight
+        local basePart = character:FindFirstChild("HumanoidRootPart")
+        if basePart then
+            local marker = createBasePartMarker(basePart)
+            basePartMarkers[plr] = marker
+        end
+    end
+end
+
+local function removeHighlight(plr)
+    if highlights[plr] then
+        highlights[plr]:Destroy()
+        highlights[plr] = nil
+    end
+    if basePartMarkers[plr] then
+        basePartMarkers[plr]:Destroy()
+        basePartMarkers[plr] = nil
+    end
+end
+
+local function updateHighlights()
+    while espEnabled do
+        local players = game.Players:GetPlayers()
+        for i = 1, #players do
+            local plr = players[i]
+            if plr.Character then
+                if not highlights[plr] then
+                    addHighlight(plr)
+                end
+            else
+                removeHighlight(plr)
+            end
+        end
+        wait(1 + math.random())
+    end
+    for plr, _ in pairs(highlights) do
+        removeHighlight(plr)
+    end
+end
+
+local function toggleESP()
+    espEnabled = not espEnabled
+    if espEnabled then
+        spawn(updateHighlights)
+    else
+        for plr, _ in pairs(highlights) do
+            removeHighlight(plr)
+        end
+    end
+end
+
+-- Загрузка биндов из файла
+local Keybinds = loadBinds()
+
+local waitingForBind = nil
+
+local function updateButtonText(button, funcName)
+    if waitingForBind == button then
+        button.Text = "Press key to bind..."
+    else
+        local state = ""
+        if funcName == "Jump" then
+            state = jumpBoost and "ON" or "OFF"
+        elseif funcName == "Fly" then
+            state = flying and "ON" or "OFF"
+        elseif funcName == "ESP" then
+            state = espEnabled and "ON" or "OFF"
+        end
+        local keyName = Keybinds[funcName] and Keybinds[funcName].Name or "Unbound"
+        button.Text = funcName .. " " .. state .. " (" .. keyName .. ")"
+    end
+end
+
+local function updateBind(funcName, keyCode)
+    Keybinds[funcName] = keyCode
+    saveBinds(Keybinds)
+end
+
+updateButtonText(JumpButton, "Jump")
+updateButtonText(FlyButton, "Fly")
+updateButtonText(ESPButton, "ESP")
+
+local function startBind(button, funcName)
+    if waitingForBind then return end
+    waitingForBind = button
+    updateButtonText(button, funcName)
+end
+
+JumpButton.MouseButton2Click:Connect(function() startBind(JumpButton, "Jump") end)
+FlyButton.MouseButton2Click:Connect(function() startBind(FlyButton, "Fly") end)
+ESPButton.MouseButton2Click:Connect(function() startBind(ESPButton, "ESP") end)
+
+JumpButton.MouseButton1Click:Connect(function()
+    if waitingForBind ~= JumpButton then toggleJump() end
+    updateButtonText(JumpButton, "Jump")
+end)
+
+FlyButton.MouseButton1Click:Connect(function()
+    if waitingForBind ~= FlyButton then toggleFly() end
+    updateButtonText(FlyButton, "Fly")
+end)
+
+ESPButton.MouseButton1Click:Connect(function()
+    if waitingForBind ~= ESPButton then toggleESP() end
+    updateButtonText(ESPButton, "ESP")
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if waitingForBind then
+        if input.UserInputType == Enum.UserInputType.Keyboard then
+            if waitingForBind == JumpButton then
+                updateBind("Jump", input.KeyCode)
+            elseif waitingForBind == FlyButton then
+                updateBind("Fly", input.KeyCode)
+            elseif waitingForBind == ESPButton then
+                updateBind("ESP", input.KeyCode)
+            end
+            updateButtonText(waitingForBind, waitingForBind == JumpButton and "Jump" or waitingForBind == FlyButton and "Fly" or "ESP")
+            waitingForBind = nil
+        end
+        return
+    end
+    if input.UserInputType == Enum.UserInputType.Keyboard then
+        if Keybinds.Jump and input.KeyCode == Keybinds.Jump then
+            toggleJump()
+            updateButtonText(JumpButton, "Jump")
+        elseif Keybinds.Fly and input.KeyCode == Keybinds.Fly then
+            toggleFly()
+            updateButtonText(FlyButton, "Fly")
+        elseif Keybinds.ESP and input.KeyCode == Keybinds.ESP then
+            toggleESP()
+            updateButtonText(ESPButton, "ESP")
+        end
+    end
+end)
