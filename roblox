@@ -1,7 +1,6 @@
 local player = game.Players.LocalPlayer
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
-
 local filename = "binds.json"
 
 local function saveBinds(keybinds)
@@ -15,7 +14,6 @@ local function saveBinds(keybinds)
     end
 end
 
--- Функция загрузки биндов из файла
 local function loadBinds()
     if readfile and isfile and isfile(filename) then
         local data = readfile(filename)
@@ -159,10 +157,11 @@ local function startFlight()
     platform.Size = Vector3.new(6, 0.5, 6)
     platform.Anchored = true
     platform.CanCollide = true
-    platform.Transparency = 0
-    platform.Material = Enum.Material.Neon
+    platform.Transparency = 0.5               -- Сделано полупрозрачным
+    platform.Material = Enum.Material.SmoothPlastic  -- Материал сменен с Neon на SmoothPlastic
     platform.BrickColor = BrickColor.new("Bright red")
     platform.Parent = workspace
+    
     spawn(function()
         while flying and platform and character.Parent do
             fastFollowPlatform(hrp)
@@ -268,9 +267,7 @@ local function toggleESP()
     end
 end
 
--- Загрузка биндов из файла
 local Keybinds = loadBinds()
-
 local waitingForBind = nil
 
 local function updateButtonText(button, funcName)
