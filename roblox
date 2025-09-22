@@ -1,8 +1,11 @@
 local player = game.Players.LocalPlayer
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
+local RunService = game:GetService("RunService")
+
 local filename = "binds.json"
 
+-- Сохранение биндов в файл
 local function saveBinds(keybinds)
     if writefile then
         local data = HttpService:JSONEncode({
@@ -14,6 +17,7 @@ local function saveBinds(keybinds)
     end
 end
 
+-- Загрузка биндов из файла
 local function loadBinds()
     if readfile and isfile and isfile(filename) then
         local data = readfile(filename)
@@ -37,7 +41,10 @@ local espEnabled = false
 local highlights = {}
 local basePartMarkers = {}
 local platform
+local lastGoodPosition = nil
+local checkTeleportConnection
 
+-- UI Создание
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "CheatGui"
 ScreenGui.ResetOnSpawn = false
@@ -113,6 +120,7 @@ CloseButton.MouseButton1Click:Connect(function()
     ScreenGui:Destroy()
 end)
 
+-- Функция плавного изменения JumpPower
 local function gradualJumpPower(targetPower)
     spawn(function()
         local character = player.Character or player.CharacterAdded:Wait()
@@ -133,6 +141,7 @@ local function gradualJumpPower(targetPower)
     end)
 end
 
+-- Переключатель прыжка
 local function toggleJump()
     jumpBoost = not jumpBoost
     if jumpBoost then
@@ -142,46 +151,78 @@ local function toggleJump()
     end
 end
 
+-- Плавное перемещение платформы, не используется сейчас, оставлю на всякий случай
 local function fastFollowPlatform(hrp)
     if platform == nil then return end
     platform.CFrame = CFrame.new(hrp.Position - Vector3.new(0, 3, 0))
 end
 
+-- Запуск полёта
 local function startFlight()
     if flying then return end
     flying = true
     local character = player.Character or player.CharacterAdded:Wait()
     local hrp = character:WaitForChild("HumanoidRootPart")
+
+    lastGoodPosition = hrp.Position -- начальная позиция при включении полёта
+
     platform = Instance.new("Part")
     platform.Name = "FlyPlatform"
     platform.Size = Vector3.new(6, 0.5, 6)
     platform.Anchored = true
     platform.CanCollide = true
-    platform.Transparency = 0.5               -- Сделано полупрозрачным
-    platform.Material = Enum.Material.SmoothPlastic  -- Материал сменен с Neon на SmoothPlastic
-    platform.BrickColor = BrickColor.new("Bright red")
+    platform.Transparency = 0.7
+    platform.Material = Enum.Material.SmoothPlastic
+    platform.BrickColor = BrickColor.new("Medium stone grey")
     platform.Parent = workspace
-    
-    spawn(function()
-        while flying and platform and character.Parent do
-            fastFollowPlatform(hrp)
-            wait(0.01)
+
+    local lastPosition = platform.Position
+
+    -- Функция проверки телепортации, изменена, чтобы НЕ телепортировать обратно
+    local function checkAndFixTeleport()
+        local distance = (hrp.Position - lastGoodPosition).Magnitude
+        if distance > 10 then
+            -- Убираем телепорт на lastGoodPosition
+            -- Просто обновляем lastGoodPosition, чтобы не было прыжков назад
+            lastGoodPosition = hrp.Position
+        else
+            lastGoodPosition = hrp.Position
         end
-        if platform then
-            platform:Destroy()
-            platform = nil
+    end
+
+    checkTeleportConnection = RunService.Heartbeat:Connect(function(dt)
+        if not flying or not character.Parent then
+            checkTeleportConnection:Disconnect()
+            checkTeleportConnection = nil
+            if platform then
+                platform:Destroy()
+                platform = nil
+            end
+            return
         end
+        local targetPos = hrp.Position - Vector3.new(0, 3, 0)
+        lastPosition = lastPosition:Lerp(targetPos, 0.8)
+        platform.CFrame = CFrame.new(lastPosition)
+
+        checkAndFixTeleport()
     end)
 end
 
+-- Остановка полёта
 local function stopFlight()
     flying = false
+    if checkTeleportConnection then
+        checkTeleportConnection:Disconnect()
+        checkTeleportConnection = nil
+    end
     if platform then
         platform:Destroy()
         platform = nil
     end
+    -- После отключения полёта персонаж просто падает, без телепортаций
 end
 
+-- Переключатель полёта
 local function toggleFly()
     if flying then
         stopFlight()
@@ -190,6 +231,7 @@ local function toggleFly()
     end
 end
 
+-- Создание маркеров для выделения игроков (ESP)
 local function createBasePartMarker(part)
     local marker = Instance.new("BillboardGui")
     marker.Adornee = part
@@ -332,11 +374,15 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
             elseif waitingForBind == ESPButton then
                 updateBind("ESP", input.KeyCode)
             end
-            updateButtonText(waitingForBind, waitingForBind == JumpButton and "Jump" or waitingForBind == FlyButton and "Fly" or "ESP")
+            updateButtonText(waitingForBind,
+                waitingForBind == JumpButton and "Jump" or
+                waitingForBind == FlyButton and "Fly" or
+                "ESP")
             waitingForBind = nil
         end
         return
     end
+
     if input.UserInputType == Enum.UserInputType.Keyboard then
         if Keybinds.Jump and input.KeyCode == Keybinds.Jump then
             toggleJump()
