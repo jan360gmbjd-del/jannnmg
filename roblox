@@ -1,23 +1,21 @@
 local player = game.Players.LocalPlayer
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
-
 local filename = "binds.json"
 
--- Сохранение биндов в файл
 local function saveBinds(keybinds)
     if writefile then
         local data = HttpService:JSONEncode({
             Jump = keybinds.Jump and keybinds.Jump.Name or nil,
-            Fly = keybinds.Fly and keybinds.Fly.Name or nil,
             ESP = keybinds.ESP and keybinds.ESP.Name or nil,
+            Fly = keybinds.Fly and keybinds.Fly.Name or nil,
         })
         writefile(filename, data)
     end
 end
 
--- Загрузка биндов из файла
 local function loadBinds()
     if readfile and isfile and isfile(filename) then
         local data = readfile(filename)
@@ -27,32 +25,31 @@ local function loadBinds()
         if ok and decoded then
             return {
                 Jump = decoded.Jump and Enum.KeyCode[decoded.Jump] or nil,
-                Fly = decoded.Fly and Enum.KeyCode[decoded.Fly] or nil,
                 ESP = decoded.ESP and Enum.KeyCode[decoded.ESP] or nil,
+                Fly = decoded.Fly and Enum.KeyCode[decoded.Fly] or nil,
             }
         end
     end
-    return {Jump = nil, Fly = nil, ESP = nil}
+    return {Jump = nil, ESP = nil, Fly = nil}
 end
 
 local jumpBoost = false
-local flying = false
 local espEnabled = false
+local flyEnabled = false
 local highlights = {}
 local basePartMarkers = {}
-local platform
-local lastGoodPosition = nil
-local checkTeleportConnection
+local flyConnection
+local bodyVelocity
+local bodyGyro
 
--- UI Создание
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "CheatGui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = game.CoreGui
 
 local Frame = Instance.new("Frame", ScreenGui)
-Frame.Size = UDim2.new(0, 200, 0, 180)
-Frame.Position = UDim2.new(0.5, -100, 0.5, -90)
+Frame.Size = UDim2.new(0, 200, 0, 240)
+Frame.Position = UDim2.new(0.5, -100, 0.5, -120)
 Frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 Frame.Active = true
 Frame.Draggable = true
@@ -82,45 +79,63 @@ MinimizeButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
 MinimizeButton.TextColor3 = Color3.new(1, 1, 1)
 
 local JumpButton = Instance.new("TextButton", Frame)
-JumpButton.Size = UDim2.new(0, 160, 0, 40)
-JumpButton.Position = UDim2.new(0, 20, 0, 40)
+JumpButton.Size = UDim2.new(0, 160, 0, 45)
+JumpButton.Position = UDim2.new(0, 20, 0, 35)
 JumpButton.BackgroundColor3 = Color3.fromRGB(0, 150, 255)
 JumpButton.TextColor3 = Color3.new(1, 1, 1)
 
-local FlyButton = Instance.new("TextButton", Frame)
-FlyButton.Size = UDim2.new(0, 160, 0, 40)
-FlyButton.Position = UDim2.new(0, 20, 0, 90)
-FlyButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
-FlyButton.TextColor3 = Color3.new(1, 1, 1)
-
 local ESPButton = Instance.new("TextButton", Frame)
-ESPButton.Size = UDim2.new(0, 160, 0, 40)
-ESPButton.Position = UDim2.new(0, 20, 0, 140)
+ESPButton.Size = UDim2.new(0, 160, 0, 45)
+ESPButton.Position = UDim2.new(0, 20, 0, 85)
 ESPButton.BackgroundColor3 = Color3.fromRGB(255, 100, 0)
 ESPButton.TextColor3 = Color3.new(1, 1, 1)
+
+local FlyButton = Instance.new("TextButton", Frame)
+FlyButton.Size = UDim2.new(0, 160, 0, 45)
+FlyButton.Position = UDim2.new(0, 20, 0, 135)
+FlyButton.BackgroundColor3 = Color3.fromRGB(0, 255, 100)
+FlyButton.TextColor3 = Color3.new(1, 1, 1)
+
+local FlySpeedTextBox = Instance.new("TextBox", Frame)
+FlySpeedTextBox.Size = UDim2.new(0, 160, 0, 30)
+FlySpeedTextBox.Position = UDim2.new(0, 20, 0, 185)
+FlySpeedTextBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+FlySpeedTextBox.TextColor3 = Color3.new(1, 1, 1)
+FlySpeedTextBox.PlaceholderText = "Fly Speed (0 for default)"
+FlySpeedTextBox.Text = ""
 
 local minimized = false
 MinimizeButton.MouseButton1Click:Connect(function()
     if minimized then
-        Frame.Size = UDim2.new(0, 200, 0, 180)
+        Frame.Size = UDim2.new(0, 200, 0, 240)
         JumpButton.Visible = true
-        FlyButton.Visible = true
         ESPButton.Visible = true
+        FlyButton.Visible = true
+        FlySpeedTextBox.Visible = true
         minimized = false
     else
         Frame.Size = UDim2.new(0, 200, 0, 30)
         JumpButton.Visible = false
-        FlyButton.Visible = false
         ESPButton.Visible = false
+        FlyButton.Visible = false
+        FlySpeedTextBox.Visible = false
         minimized = true
     end
 end)
 
 CloseButton.MouseButton1Click:Connect(function()
     ScreenGui:Destroy()
+    if flyConnection then
+        flyConnection:Disconnect()
+    end
+    if bodyVelocity then
+        bodyVelocity:Destroy()
+    end
+    if bodyGyro then
+        bodyGyro:Destroy()
+    end
 end)
 
--- Функция плавного изменения JumpPower
 local function gradualJumpPower(targetPower)
     spawn(function()
         local character = player.Character or player.CharacterAdded:Wait()
@@ -141,7 +156,6 @@ local function gradualJumpPower(targetPower)
     end)
 end
 
--- Переключатель прыжка
 local function toggleJump()
     jumpBoost = not jumpBoost
     if jumpBoost then
@@ -151,87 +165,6 @@ local function toggleJump()
     end
 end
 
--- Плавное перемещение платформы, не используется сейчас, оставлю на всякий случай
-local function fastFollowPlatform(hrp)
-    if platform == nil then return end
-    platform.CFrame = CFrame.new(hrp.Position - Vector3.new(0, 3, 0))
-end
-
--- Запуск полёта
-local function startFlight()
-    if flying then return end
-    flying = true
-    local character = player.Character or player.CharacterAdded:Wait()
-    local hrp = character:WaitForChild("HumanoidRootPart")
-
-    lastGoodPosition = hrp.Position -- начальная позиция при включении полёта
-
-    platform = Instance.new("Part")
-    platform.Name = "FlyPlatform"
-    platform.Size = Vector3.new(6, 0.5, 6)
-    platform.Anchored = true
-    platform.CanCollide = true
-    platform.Transparency = 0.7
-    platform.Material = Enum.Material.SmoothPlastic
-    platform.BrickColor = BrickColor.new("Medium stone grey")
-    platform.Parent = workspace
-
-    local lastPosition = platform.Position
-
-    -- Функция проверки телепортации, изменена, чтобы НЕ телепортировать обратно
-    local function checkAndFixTeleport()
-        local distance = (hrp.Position - lastGoodPosition).Magnitude
-        if distance > 10 then
-            -- Убираем телепорт на lastGoodPosition
-            -- Просто обновляем lastGoodPosition, чтобы не было прыжков назад
-            lastGoodPosition = hrp.Position
-        else
-            lastGoodPosition = hrp.Position
-        end
-    end
-
-    checkTeleportConnection = RunService.Heartbeat:Connect(function(dt)
-        if not flying or not character.Parent then
-            checkTeleportConnection:Disconnect()
-            checkTeleportConnection = nil
-            if platform then
-                platform:Destroy()
-                platform = nil
-            end
-            return
-        end
-        local targetPos = hrp.Position - Vector3.new(0, 3, 0)
-        lastPosition = lastPosition:Lerp(targetPos, 0.8)
-        platform.CFrame = CFrame.new(lastPosition)
-
-        checkAndFixTeleport()
-    end)
-end
-
--- Остановка полёта
-local function stopFlight()
-    flying = false
-    if checkTeleportConnection then
-        checkTeleportConnection:Disconnect()
-        checkTeleportConnection = nil
-    end
-    if platform then
-        platform:Destroy()
-        platform = nil
-    end
-    -- После отключения полёта персонаж просто падает, без телепортаций
-end
-
--- Переключатель полёта
-local function toggleFly()
-    if flying then
-        stopFlight()
-    else
-        startFlight()
-    end
-end
-
--- Создание маркеров для выделения игроков (ESP)
 local function createBasePartMarker(part)
     local marker = Instance.new("BillboardGui")
     marker.Adornee = part
@@ -309,6 +242,89 @@ local function toggleESP()
     end
 end
 
+local function toggleFly()
+    flyEnabled = not flyEnabled
+    local character = player.Character
+    if not character then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not rootPart then return end
+
+    if flyEnabled then
+        bodyVelocity = Instance.new("BodyVelocity")
+        bodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bodyVelocity.Velocity = Vector3.new(0, 0, 0)
+        bodyVelocity.Parent = rootPart
+
+        bodyGyro = Instance.new("BodyGyro")
+        bodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+        bodyGyro.P = 20000
+        bodyGyro.Parent = rootPart
+
+        local moveDirection = Vector3.new(0, 0, 0)
+
+        flyConnection = RunService.RenderStepped:Connect(function()
+            local camera = workspace.CurrentCamera
+            local moveVector = Vector3.new(0, 0, 0)
+
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) or UserInputService:IsKeyDown(Enum.KeyCode.Up) then
+                moveVector = moveVector + camera.CFrame.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) or UserInputService:IsKeyDown(Enum.KeyCode.Down) then
+                moveVector = moveVector - camera.CFrame.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) or UserInputService:IsKeyDown(Enum.KeyCode.Left) then
+                moveVector = moveVector - camera.CFrame.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) or UserInputService:IsKeyDown(Enum.KeyCode.Right) then
+                moveVector = moveVector + camera.CFrame.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+                moveVector = moveVector + Vector3.new(0, 1, 0)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) then
+                moveVector = moveVector - Vector3.new(0, 1, 0)
+            end
+
+            -- Динамическое обновление скорости
+            local flySpeedInput = tonumber(FlySpeedTextBox.Text)
+            local flySpeed = humanoid.WalkSpeed  -- default to game's walk speed
+            if flySpeedInput and flySpeedInput > 0 then
+                flySpeed = flySpeedInput
+            end
+
+            if moveVector.Magnitude > 0 then
+                moveDirection = moveVector.Unit * flySpeed
+            else
+                moveDirection = Vector3.new(0, 0, 0)
+            end
+            bodyVelocity.Velocity = moveDirection
+
+            -- Поворачиваем персонажа в сторону камеры (горизонтально)
+            local flatLookVector = Vector3.new(camera.CFrame.LookVector.X, 0, camera.CFrame.LookVector.Z).Unit
+            if flatLookVector.Magnitude > 0 then
+                bodyGyro.CFrame = CFrame.new(rootPart.Position, rootPart.Position + flatLookVector)
+            end
+
+            humanoid.PlatformStand = true
+        end)
+    else
+        if flyConnection then
+            flyConnection:Disconnect()
+            flyConnection = nil
+        end
+        if bodyVelocity then
+            bodyVelocity:Destroy()
+            bodyVelocity = nil
+        end
+        if bodyGyro then
+            bodyGyro:Destroy()
+            bodyGyro = nil
+        end
+        humanoid.PlatformStand = false
+    end
+end
+
 local Keybinds = loadBinds()
 local waitingForBind = nil
 
@@ -319,10 +335,10 @@ local function updateButtonText(button, funcName)
         local state = ""
         if funcName == "Jump" then
             state = jumpBoost and "ON" or "OFF"
-        elseif funcName == "Fly" then
-            state = flying and "ON" or "OFF"
         elseif funcName == "ESP" then
             state = espEnabled and "ON" or "OFF"
+        elseif funcName == "Fly" then
+            state = flyEnabled and "ON" or "OFF"
         end
         local keyName = Keybinds[funcName] and Keybinds[funcName].Name or "Unbound"
         button.Text = funcName .. " " .. state .. " (" .. keyName .. ")"
@@ -335,8 +351,8 @@ local function updateBind(funcName, keyCode)
 end
 
 updateButtonText(JumpButton, "Jump")
-updateButtonText(FlyButton, "Fly")
 updateButtonText(ESPButton, "ESP")
+updateButtonText(FlyButton, "Fly")
 
 local function startBind(button, funcName)
     if waitingForBind then return end
@@ -345,22 +361,22 @@ local function startBind(button, funcName)
 end
 
 JumpButton.MouseButton2Click:Connect(function() startBind(JumpButton, "Jump") end)
-FlyButton.MouseButton2Click:Connect(function() startBind(FlyButton, "Fly") end)
 ESPButton.MouseButton2Click:Connect(function() startBind(ESPButton, "ESP") end)
+FlyButton.MouseButton2Click:Connect(function() startBind(FlyButton, "Fly") end)
 
 JumpButton.MouseButton1Click:Connect(function()
     if waitingForBind ~= JumpButton then toggleJump() end
     updateButtonText(JumpButton, "Jump")
 end)
 
-FlyButton.MouseButton1Click:Connect(function()
-    if waitingForBind ~= FlyButton then toggleFly() end
-    updateButtonText(FlyButton, "Fly")
-end)
-
 ESPButton.MouseButton1Click:Connect(function()
     if waitingForBind ~= ESPButton then toggleESP() end
     updateButtonText(ESPButton, "ESP")
+end)
+
+FlyButton.MouseButton1Click:Connect(function()
+    if waitingForBind ~= FlyButton then toggleFly() end
+    updateButtonText(FlyButton, "Fly")
 end)
 
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -369,30 +385,26 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         if input.UserInputType == Enum.UserInputType.Keyboard then
             if waitingForBind == JumpButton then
                 updateBind("Jump", input.KeyCode)
-            elseif waitingForBind == FlyButton then
-                updateBind("Fly", input.KeyCode)
             elseif waitingForBind == ESPButton then
                 updateBind("ESP", input.KeyCode)
+            elseif waitingForBind == FlyButton then
+                updateBind("Fly", input.KeyCode)
             end
-            updateButtonText(waitingForBind,
-                waitingForBind == JumpButton and "Jump" or
-                waitingForBind == FlyButton and "Fly" or
-                "ESP")
+            updateButtonText(waitingForBind, waitingForBind == JumpButton and "Jump" or waitingForBind == ESPButton and "ESP" or "Fly")
             waitingForBind = nil
         end
         return
     end
-
     if input.UserInputType == Enum.UserInputType.Keyboard then
         if Keybinds.Jump and input.KeyCode == Keybinds.Jump then
             toggleJump()
             updateButtonText(JumpButton, "Jump")
-        elseif Keybinds.Fly and input.KeyCode == Keybinds.Fly then
-            toggleFly()
-            updateButtonText(FlyButton, "Fly")
         elseif Keybinds.ESP and input.KeyCode == Keybinds.ESP then
             toggleESP()
             updateButtonText(ESPButton, "ESP")
+        elseif Keybinds.Fly and input.KeyCode == Keybinds.Fly then
+            toggleFly()
+            updateButtonText(FlyButton, "Fly")
         end
     end
 end)
